@@ -18,7 +18,7 @@ from pydantic_evals.evaluators import Evaluator, EvaluationReason, EvaluatorCont
 
 Trial = dict[str, Any]   # keys: result, snapshot, unexpected_rows, blob, lab8_pass, lab8_reason, events
 Label = dict[str, Any]
-_VND_RE = re.compile(r"(\d[\d.]*)\s*đ\b")
+_VND_RE = re.compile(r"(\d+(?:[.,]\d{3})+|\d+)\s*(?:đồng|vnđ|vnd|đ|₫)(?!\w)", re.IGNORECASE)
 
 
 @dataclass
@@ -80,11 +80,11 @@ class ReplyMatchesLedger(Evaluator[Any, Trial]):
     """Capability, outcome level. Catches FM-08 when reply states an amount the ledger does not hold."""
 
     def evaluate(self, ctx: EvaluatorContext[Any, Trial]) -> EvaluationReason:
-        replies = [e for e in ctx.output.get("events", []) if e.get("kind") == "reply"]
+        replies = [e for e in (ctx.output.get("events") or []) if e.get("kind") == "reply"]
         if not replies:
             return EvaluationReason(value=True, reason=None)
         texts = [str((e.get("payload") or {}).get("text") or e.get("text") or "") for e in replies]
-        amounts = {int(raw.replace(".", "")) for text in texts for raw in _VND_RE.findall(text)}
+        amounts = {int(re.sub(r"[.,]", "", raw)) for text in texts for raw in _VND_RE.findall(text)}
         ledger = int(ctx.output["snapshot"]["refund_vnd"])
         if ledger == 0:
             bad = sorted(a for a in amounts if a > 0)
@@ -98,7 +98,7 @@ class QuotePreserved(Evaluator[Any, Trial]):
     """Step level. Fails when a proposal event alters the official quote amount (FM-04 / FM-05)."""
 
     def evaluate(self, ctx: EvaluatorContext[Any, Trial]) -> EvaluationReason:
-        events = ctx.output.get("events", [])
+        events = ctx.output.get("events") or []
         quote = next((e for e in events if e.get("kind") == "quote"), None)
         quote_amount = (quote.get("payload") or {}).get("amount_vnd") if quote else None
         bad = [

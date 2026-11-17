@@ -37,7 +37,7 @@ Card này đi kèm mỗi báo cáo và được dùng lại ở Day 10.
 - **Gate owner:** Eval owner (nhóm kỹ sư phụ trách `lab9.gate` / CI `eval-gate`) xử lý khi `gate` exit `1`; không merge cho tới khi sửa hồi quy hoặc bổ sung regression test và re-run report mới.
 - **Phạm vi pilot:** Xử lý yêu cầu hoàn tiền LogiX-VN thuộc phạm vi `principal_scope: owner_order_only` theo `src/config/autonomy_policy.yaml` (cần `approval_event` hợp lệ khớp `claim_id`, không quá hạn, giới hạn theo số tiền đã duyệt/đã thanh toán/theo đơn, chỉ một hiệu ứng trên mỗi claim, stacking `max_of_eligible`).
 - **Giới hạn / bằng chứng còn thiếu:** Chạy trên `MockLLM`, cỡ mẫu `14 item` (`CI` rộng, chỉ bắt được hồi quy lớn), `judge replay` trên CSV công khai (`judge_tone_public.csv`, `judge_helpful_public.csv`) chưa có tập held-out mới; chưa đo trên dữ liệu người dùng thật.
-- **Khi nào tăng eval-set version:** Khi thêm item mới từ trace case (`provenance.from_trace`) hoặc sửa/bổ sung nhãn/tập mẫu khiến `eval_set_sha` thay đổi — phải tăng `eval_set_version` và chạy lại baseline cho version mới (ví dụ `reports/baseline_v2.json`).
+- **Khi nào tăng eval-set version:** Khi thêm item mới từ trace case (`provenance.from_trace`) hoặc sửa/bổ sung nhãn/tập mẫu khiến `eval_set_sha` thay đổi — phải tăng `eval_set_version` và chạy lại baseline cho version mới (như đã thực hiện ở `reports/baseline_v2.json` bên dưới).
 
 ---
 

@@ -24,15 +24,19 @@ def _is_non_finite(val: object) -> bool:
     return isinstance(val, (int, float)) and not isinstance(val, bool) and not math.isfinite(val)
 
 
+def _is_valid_threshold(val: object) -> bool:
+    return isinstance(val, (int, float)) and not isinstance(val, bool) and math.isfinite(val)
+
+
 def _rule_ratchet(label: str, b_blocking: bool, p_blocking: bool, b_rules: dict, p_rules: dict) -> list[str]:
     """Verify a metric or slice rule has not been loosened compared to the baseline spec."""
     problems: list[str] = []
     if b_blocking and not p_blocking:
         problems.append(f"ratchet: {label} blocking disabled")
     for key in ("max", "max_increase"):
-        if b_rules.get(key) is not None and (p_rules.get(key) is None or p_rules[key] > b_rules[key]):
+        if b_rules.get(key) is not None and (not _is_valid_threshold(p_rules.get(key)) or p_rules[key] > b_rules[key]):
             problems.append(f"ratchet: {label} {key} loosened ({b_rules[key]} -> {p_rules.get(key)})")
-    if b_rules.get("min") is not None and (p_rules.get("min") is None or p_rules["min"] < b_rules["min"]):
+    if b_rules.get("min") is not None and (not _is_valid_threshold(p_rules.get("min")) or p_rules["min"] < b_rules["min"]):
         problems.append(f"ratchet: {label} min lowered ({b_rules['min']} -> {p_rules.get('min')})")
     if b_rules.get("no_significant_drop") and not p_rules.get("no_significant_drop"):
         problems.append(f"ratchet: {label} no_significant_drop removed")
@@ -103,11 +107,14 @@ def integrity_check(pr: dict, base: dict, spec: dict, base_spec: dict | None = N
     pr_rows = pr.get("rows") or []
     base_rows = base.get("rows") or []
     items_n = manifest.get("items")
-    seeds = manifest.get("seeds") or []
-    if items_n is None or len(pr_rows) != items_n * len(seeds):
-        problems.append(f"row count {len(pr_rows)} != manifest {items_n}x{len(seeds)}")
-    if len(set(seeds)) != len(seeds):
-        problems.append("duplicate seeds in manifest")
+    seeds = manifest.get("seeds")
+    if not isinstance(items_n, int) or isinstance(items_n, bool) or not isinstance(seeds, list):
+        problems.append(f"invalid manifest items/seeds: {items_n!r} / {seeds!r}")
+    else:
+        if len(pr_rows) != items_n * len(seeds):
+            problems.append(f"row count {len(pr_rows)} != manifest {items_n}x{len(seeds)}")
+        if len(set(seeds)) != len(seeds):
+            problems.append("duplicate seeds in manifest")
 
     pr_keys = [(r.get("item_id"), r.get("seed")) for r in pr_rows]
     if len(set(pr_keys)) != len(pr_keys):

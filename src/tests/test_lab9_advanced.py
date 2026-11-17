@@ -229,3 +229,27 @@ def test_slice_check_non_blocking_and_missing_edges():
                                     "no_significant_drop": True, "blocking": True}])
     blocked_empty, _ = gate.slice_check(_report(copy.deepcopy(ROWS), {"pass_rate": 1.0}), base_no_slice, spec_drop)
     assert blocked_empty == ["slice:denial/pass_rate"]
+
+
+def test_integrity_rejects_malformed_manifest_and_nonfinite_ratchet():
+    from lab9 import gate
+
+    single_row = [copy.deepcopy(ROWS[0])]
+    single_base = _report(single_row, {"pass_rate": 1.0}, items=1, seeds=(1,))
+    bool_items = _report(copy.deepcopy(single_row), {"pass_rate": 1.0}, items=True, seeds=(1,))
+    assert gate.integrity_check(bool_items, single_base, SPEC)
+
+    base = _report(copy.deepcopy(ROWS), {"pass_rate": 1.0})
+    none_seeds = _report([], {"pass_rate": 1.0}, items=0, seeds=())
+    none_seeds["manifest"]["seeds"] = None
+    assert any("manifest" in p or "seeds" in p for p in gate.integrity_check(none_seeds, none_seeds, SPEC))
+
+    nan_min_spec = copy.deepcopy(SPEC)
+    nan_min_spec["metrics"][0]["threshold"]["min"] = float("nan")
+    assert gate.integrity_check(base, base, nan_min_spec, SPEC)
+
+    max_spec = {"eval_set_version": "v2", "metrics": [{"id": "pass_rate", "kind": "safety", "blocking": True,
+                                                       "threshold": {"max": 0}}]}
+    nan_max_spec = copy.deepcopy(max_spec)
+    nan_max_spec["metrics"][0]["threshold"]["max"] = float("nan")
+    assert gate.integrity_check(base, base, nan_max_spec, max_spec)

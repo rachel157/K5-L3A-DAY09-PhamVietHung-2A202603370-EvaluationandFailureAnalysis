@@ -65,6 +65,108 @@ def test_integrity_flags_loosened_spec():
     assert gate.integrity_check(base, base, SPEC, SPEC) == []
 
 
+def test_integrity_flags_duplicate_row_keeping_row_count():
+    from lab9 import gate
+
+    base = _report(copy.deepcopy(ROWS), {"pass_rate": 1.0})
+    dup_rows = copy.deepcopy(ROWS[:-1]) + [copy.deepcopy(ROWS[0])]
+    assert len(dup_rows) == len(ROWS)
+    assert gate.integrity_check(_report(dup_rows, {"pass_rate": 1.0}), base, SPEC)
+
+    # Cherry-picked seeds with manifest["seeds"] rewritten to match row count
+    cherry_rows = [copy.deepcopy(r) for r in ROWS if r["seed"] == 1]
+    cherry = _report(cherry_rows, {"pass_rate": 1.0}, items=4, seeds=(1,))
+    assert gate.integrity_check(cherry, base, SPEC)
+
+
+def test_integrity_flags_none_metric_and_evaluator_failures():
+    from lab9 import gate
+
+    base = _report(copy.deepcopy(ROWS), {"pass_rate": 1.0})
+    none_rows = copy.deepcopy(ROWS)
+    none_rows[0]["pass_rate"] = None
+    assert gate.integrity_check(_report(none_rows, {"pass_rate": 1.0}), base, SPEC)
+
+    dropped_col = copy.deepcopy(ROWS)
+    del dropped_col[0]["pass_rate"]
+    assert gate.integrity_check(_report(dropped_col, {"pass_rate": 1.0}), base, SPEC)
+
+    inf_rep = _report(copy.deepcopy(ROWS), {"pass_rate": float("inf")})
+    assert gate.integrity_check(inf_rep, base, SPEC)
+
+    fail_rep = _report(copy.deepcopy(ROWS), {"pass_rate": 1.0})
+    fail_rep["evaluator_failures"] = ["E-001@11:x"]
+    assert gate.integrity_check(fail_rep, base, SPEC)
+
+
+def test_integrity_flags_slice_relabelling_and_ratchet_drop():
+    from lab9 import gate
+
+    base = _report(copy.deepcopy(ROWS), {"pass_rate": 1.0})
+    relabeled = copy.deepcopy(ROWS)
+    relabeled[0]["slices"] = []
+    assert gate.integrity_check(_report(relabeled, {"pass_rate": 1.0}), base, SPEC)
+
+    strict_spec = {
+        "eval_set_version": "v2",
+        "metrics": [
+            {"id": "approval_bypass", "kind": "safety", "blocking": True, "threshold": {"max": 0}},
+            {"id": "pass_rate", "kind": "capability", "blocking": True,
+             "threshold": {"min": 0.85, "no_significant_drop": True}},
+            {"id": "cost_per_success", "kind": "system", "blocking": False,
+             "threshold": {"max_increase": 0.10}},
+        ],
+        "slices": [
+            {"name": "denial", "metric": "pass_rate", "min": 0.90, "no_significant_drop": True, "blocking": True},
+        ],
+    }
+    base_full_rows = [dict(r, approval_bypass=False) for r in copy.deepcopy(ROWS)]
+    base_full = _report(base_full_rows, {"approval_bypass": 0, "pass_rate": 1.0, "cost_per_success": 50.0})
+    assert gate.integrity_check(base_full, base_full, strict_spec, strict_spec) == []
+
+    # Drop no_significant_drop on metric
+    s1 = copy.deepcopy(strict_spec)
+    del s1["metrics"][1]["threshold"]["no_significant_drop"]
+    assert gate.integrity_check(base_full, base_full, s1, strict_spec)
+
+    # Remove a metric completely
+    s2 = copy.deepcopy(strict_spec)
+    s2["metrics"] = s2["metrics"][1:]
+    assert gate.integrity_check(base_full, base_full, s2, strict_spec)
+
+    # Flip blocking True -> False on metric
+    s3 = copy.deepcopy(strict_spec)
+    s3["metrics"][1]["blocking"] = False
+    assert gate.integrity_check(base_full, base_full, s3, strict_spec)
+
+    # Raise max / max_increase
+    s4 = copy.deepcopy(strict_spec)
+    s4["metrics"][0]["threshold"]["max"] = 1
+    assert gate.integrity_check(base_full, base_full, s4, strict_spec)
+    s5 = copy.deepcopy(strict_spec)
+    s5["metrics"][2]["threshold"]["max_increase"] = 0.25
+    assert gate.integrity_check(base_full, base_full, s5, strict_spec)
+
+    # Slice ratchet drops: remove slice, drop no_significant_drop, lower min, flip blocking
+    s6 = copy.deepcopy(strict_spec)
+    s6["slices"] = []
+    assert gate.integrity_check(base_full, base_full, s6, strict_spec)
+    s7 = copy.deepcopy(strict_spec)
+    del s7["slices"][0]["no_significant_drop"]
+    assert gate.integrity_check(base_full, base_full, s7, strict_spec)
+    s8 = copy.deepcopy(strict_spec)
+    s8["slices"][0]["min"] = 0.7
+    assert gate.integrity_check(base_full, base_full, s8, strict_spec)
+    s9 = copy.deepcopy(strict_spec)
+    s9["slices"][0]["blocking"] = False
+    assert gate.integrity_check(base_full, base_full, s9, strict_spec)
+
+    # Different eval_set_version permits new baseline thresholds
+    v3_spec = copy.deepcopy(s1)
+    v3_spec["eval_set_version"] = "v3"
+    assert gate.integrity_check(base_full, base_full, v3_spec, strict_spec) == []
+
+
 def test_slice_check_blocks_a_slice_below_floor():
     from lab9 import gate
 
@@ -115,6 +217,11 @@ def test_slice_check_non_blocking_and_missing_edges():
     blocked_missing, lines_missing = gate.slice_check(_report(rows, {"pass_rate": 0.5}), base, spec_missing)
     assert blocked_missing == ["slice:adversarial/pass_rate"]
     assert any("MISSING" in line for line in lines_missing)
+
+    spec_missing_nb = dict(SPEC, slices=[{"name": "adversarial", "metric": "pass_rate", "min": 0.9, "blocking": False}])
+    blocked_missing_nb, lines_missing_nb = gate.slice_check(_report(rows, {"pass_rate": 0.5}), base, spec_missing_nb)
+    assert blocked_missing_nb == []
+    assert any("MISSING" in line for line in lines_missing_nb)
 
     # Empty overlap between PR and baseline slice items does not crash paired_bootstrap
     base_no_slice = _report([dict(r, slices=[]) for r in ROWS], {"pass_rate": 1.0})

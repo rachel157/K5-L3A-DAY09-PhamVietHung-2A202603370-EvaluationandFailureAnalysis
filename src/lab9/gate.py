@@ -11,11 +11,72 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 
 from lab8.console import utf8_stdio
 from lab9 import stats
 from lab9.eval import SPEC, load_spec, per_item
+from lab9.graders import GRADERS
+
+
+def _is_non_finite(val: object) -> bool:
+    return isinstance(val, (int, float)) and not isinstance(val, bool) and not math.isfinite(val)
+
+
+def _rule_ratchet(label: str, b_blocking: bool, p_blocking: bool, b_rules: dict, p_rules: dict) -> list[str]:
+    """Verify a metric or slice rule has not been loosened compared to the baseline spec."""
+    problems: list[str] = []
+    if b_blocking and not p_blocking:
+        problems.append(f"ratchet: {label} blocking disabled")
+    for key in ("max", "max_increase"):
+        if b_rules.get(key) is not None and (p_rules.get(key) is None or p_rules[key] > b_rules[key]):
+            problems.append(f"ratchet: {label} {key} loosened ({b_rules[key]} -> {p_rules.get(key)})")
+    if b_rules.get("min") is not None and (p_rules.get("min") is None or p_rules["min"] < b_rules["min"]):
+        problems.append(f"ratchet: {label} min lowered ({b_rules['min']} -> {p_rules.get('min')})")
+    if b_rules.get("no_significant_drop") and not p_rules.get("no_significant_drop"):
+        problems.append(f"ratchet: {label} no_significant_drop removed")
+    return problems
+
+
+def _ratchet_check(spec: dict, base_spec: dict) -> list[str]:
+    """Compare spec against base_spec on the same eval-set version; thresholds may only get stricter."""
+    if spec.get("eval_set_version") != base_spec.get("eval_set_version"):
+        return []
+    problems: list[str] = []
+    pr_metrics = {m["id"]: m for m in spec.get("metrics") or []}
+    for bm in base_spec.get("metrics") or []:
+        mid = bm["id"]
+        pm = pr_metrics.get(mid)
+        if pm is None:
+            problems.append(f"ratchet: metric {mid} removed")
+            continue
+        problems.extend(
+            _rule_ratchet(
+                f"metric {mid}",
+                bool(bm.get("blocking")),
+                bool(pm.get("blocking")),
+                bm.get("threshold") or {},
+                pm.get("threshold") or {},
+            )
+        )
+    pr_slices = {(s["name"], s["metric"]): s for s in spec.get("slices") or []}
+    for bs in base_spec.get("slices") or []:
+        key = (bs["name"], bs["metric"])
+        ps = pr_slices.get(key)
+        if ps is None:
+            problems.append(f"ratchet: slice {bs['name']}/{bs['metric']} removed")
+            continue
+        problems.extend(
+            _rule_ratchet(
+                f"slice {bs['name']}/{bs['metric']}",
+                bool(bs.get("blocking")),
+                bool(ps.get("blocking")),
+                bs,
+                ps,
+            )
+        )
+    return problems
 
 
 def integrity_check(pr: dict, base: dict, spec: dict, base_spec: dict | None = None) -> list[str]:
@@ -33,8 +94,58 @@ def integrity_check(pr: dict, base: dict, spec: dict, base_spec: dict | None = N
         including dropping no_significant_drop)
       - an item's slice tags in PR rows differ from the baseline's (relabelling an item out of a
         slice hides its regression from the slice gate)"""
-    # TODO M7
-    return []
+    problems: list[str] = []
+    for mid, val in (pr.get("metrics") or {}).items():
+        if _is_non_finite(val):
+            problems.append(f"non-finite metric {mid}: {val}")
+
+    manifest = pr.get("manifest") or {}
+    pr_rows = pr.get("rows") or []
+    base_rows = base.get("rows") or []
+    items_n = manifest.get("items")
+    seeds = manifest.get("seeds") or []
+    if items_n is None or len(pr_rows) != items_n * len(seeds):
+        problems.append(f"row count {len(pr_rows)} != manifest {items_n}x{len(seeds)}")
+    if len(set(seeds)) != len(seeds):
+        problems.append("duplicate seeds in manifest")
+
+    pr_keys = [(r.get("item_id"), r.get("seed")) for r in pr_rows]
+    if len(set(pr_keys)) != len(pr_keys):
+        problems.append("duplicate (item_id, seed) rows in PR")
+    base_keys = {(r.get("item_id"), r.get("seed")) for r in base_rows}
+    if set(pr_keys) != base_keys:
+        problems.append("PR (item_id, seed) set differs from baseline")
+
+    failures = pr.get("evaluator_failures") or []
+    if failures:
+        problems.append(f"{len(failures)} evaluator failure(s)")
+
+    spec_metric_ids = [m["id"] for m in spec.get("metrics") or []]
+    graded_in_base = {mid for mid in spec_metric_ids if any(mid in br for br in base_rows)}
+    bad_cols: set[str] = set()
+    for r in pr_rows:
+        for mid in spec_metric_ids:
+            val = r.get(mid)
+            if (mid in r and val is None) or _is_non_finite(val):
+                bad_cols.add(mid)
+            elif (mid in graded_in_base or (not base_rows and mid in GRADERS)) and val is None:
+                bad_cols.add(mid)
+    for mid in sorted(bad_cols):
+        problems.append(f"missing/invalid row value(s) for graded metric {mid}")
+
+    base_slices = {(r.get("item_id"), r.get("seed")): sorted(r.get("slices") or []) for r in base_rows}
+    changed_slices = [
+        f"{r.get('item_id')}@{r.get('seed')}"
+        for r in pr_rows
+        if (r.get("item_id"), r.get("seed")) in base_slices
+        and sorted(r.get("slices") or []) != base_slices[(r.get("item_id"), r.get("seed"))]
+    ]
+    if changed_slices:
+        problems.append(f"slice tags changed for {', '.join(changed_slices[:3])}")
+
+    if base_spec is not None:
+        problems.extend(_ratchet_check(spec, base_spec))
+    return problems
 
 
 def slice_check(pr: dict, base: dict, spec: dict) -> tuple[list[str], list[str]]:
@@ -61,7 +172,8 @@ def slice_check(pr: dict, base: dict, spec: dict) -> tuple[list[str], list[str]]
         if s.get("no_significant_drop") and val is not None:
             keys = sorted(set(a) & set(b))
             if not keys:
-                verdict = "missing"
+                if verdict == "ok":
+                    verdict = "missing"
                 note = "no paired items"
             else:
                 d, lo, hi = stats.paired_bootstrap(

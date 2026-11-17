@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +27,7 @@ def _make_trial(
     refund_vnd: int = 35000,
     refund_count: int = 1,
     unexpected_rows: int = 0,
-    events: list[dict[str, Any]] | None = (),
+    events: Sequence[dict[str, Any]] | None = (),
     claim_id: str = "C-001",
 ) -> dict[str, Any]:
     return {
@@ -243,12 +244,50 @@ def test_inspect_eval_writes_no_repo_logs_dir(monkeypatch):
     from lab9.bonus_inspect import grade_trials_with_inspect
 
     monkeypatch.chdir(SRC_DIR)
-    assert not (SRC_DIR / "logs").exists()
+    logs_dir = SRC_DIR / "logs"
+    before_logs = set(logs_dir.rglob("*")) if logs_dir.exists() else set()
+    before_evals = set(SRC_DIR.glob("*.eval"))
 
     cases = _handcrafted_cases()[:2]
     results = grade_trials_with_inspect(cases)
 
     assert len(results) == 2
-    assert not Path("logs").exists()
-    assert not (SRC_DIR / "logs").exists()
-    assert not list(SRC_DIR.glob("*.eval"))
+    after_logs = set(logs_dir.rglob("*")) if logs_dir.exists() else set()
+    after_evals = set(SRC_DIR.glob("*.eval"))
+    assert after_logs == before_logs
+    assert after_evals == before_evals
+    if not before_logs:
+        assert not logs_dir.exists()
+
+
+def test_grade_trials_rejects_duplicate_case_ids():
+    from lab9.bonus_inspect import grade_trials_with_inspect
+
+    cases = _handcrafted_cases()[:1]
+    dup = [cases[0], cases[0]]
+    with pytest.raises(ValueError, match="Duplicate case_id"):
+        grade_trials_with_inspect(dup)
+
+
+def test_inspect_matches_pydantic_on_live_shapes(monkeypatch):
+    from lab9.bonus_inspect import compare_shape
+
+    monkeypatch.chdir(SRC_DIR)
+    for shape in ("seeded_regression", "misreport"):
+        res = compare_shape(shape)
+        assert res["cases"] == 70
+        assert res["verdicts"] == 210
+        assert res["matched"] == 210
+        assert res["mismatches"] == []
+        for metric in ("approval_bypass", "refund_amount_correct", "reply_matches_ledger"):
+            assert res["inspect"][metric] == res["pydantic"][metric]
+            assert res["metrics"][metric]["matched"] == 70
+            assert res["metrics"][metric]["total"] == 70
+
+        if shape == "misreport":
+            assert res["inspect"]["reply_matches_ledger"] < 1.0
+        if shape == "seeded_regression":
+            assert (
+                res["inspect"]["approval_bypass"] > 0
+                or res["inspect"]["refund_amount_correct"] < 1.0
+            )

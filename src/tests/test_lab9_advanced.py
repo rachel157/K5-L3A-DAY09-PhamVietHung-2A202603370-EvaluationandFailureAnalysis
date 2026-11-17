@@ -74,3 +74,49 @@ def test_slice_check_blocks_a_slice_below_floor():
     spec = dict(SPEC, slices=[{"name": "denial", "metric": "pass_rate", "min": 0.9, "blocking": True}])
     blocked, _ = gate.slice_check(_report(rows, {"pass_rate": 0.75}), base, spec)
     assert blocked == ["slice:denial/pass_rate"]
+
+
+def test_slice_check_no_significant_drop_blocks_above_floor():
+    from lab9 import gate
+
+    rows = [{"item_id": f"E-{i:03d}", "seed": s, "pass_rate": True, "slices": ["money_movement"]}
+            for i in range(4) for s in (1, 2)]
+    base = _report(copy.deepcopy(rows), {"pass_rate": 1.0})
+    pr_rows = copy.deepcopy(rows)
+    for r in pr_rows:
+        if r["seed"] == 1:
+            r["pass_rate"] = False
+    spec = dict(SPEC, slices=[{"name": "money_movement", "metric": "pass_rate", "min": 0.5,
+                               "no_significant_drop": True, "blocking": True}])
+    blocked, lines = gate.slice_check(_report(pr_rows, {"pass_rate": 0.5}), base, spec)
+    assert blocked == ["slice:money_movement/pass_rate"]
+    assert len(lines) == 1
+
+
+def test_slice_check_non_blocking_and_missing_edges():
+    from lab9 import gate
+
+    base = _report(copy.deepcopy(ROWS), {"pass_rate": 1.0})
+    rows = copy.deepcopy(ROWS)
+    for r in rows:
+        if "denial" in r["slices"]:
+            r["pass_rate"] = False
+
+    # Non-blocking slice violation warns without blocking
+    spec_warn = dict(SPEC, slices=[{"name": "denial", "metric": "pass_rate", "min": 0.9, "blocking": False}])
+    blocked, lines = gate.slice_check(_report(rows, {"pass_rate": 0.5}), base, spec_warn)
+    assert blocked == []
+    assert any("warn" in line for line in lines)
+
+    # Missing slice in PR blocks if blocking=True, skips cleanly if blocking=False
+    spec_missing = dict(SPEC, slices=[{"name": "adversarial", "metric": "pass_rate", "min": 0.9, "blocking": True}])
+    blocked_missing, lines_missing = gate.slice_check(_report(rows, {"pass_rate": 0.5}), base, spec_missing)
+    assert blocked_missing == ["slice:adversarial/pass_rate"]
+    assert any("MISSING" in line for line in lines_missing)
+
+    # Empty overlap between PR and baseline slice items does not crash paired_bootstrap
+    base_no_slice = _report([dict(r, slices=[]) for r in ROWS], {"pass_rate": 1.0})
+    spec_drop = dict(SPEC, slices=[{"name": "denial", "metric": "pass_rate", "min": 0.5,
+                                    "no_significant_drop": True, "blocking": True}])
+    blocked_empty, _ = gate.slice_check(_report(copy.deepcopy(ROWS), {"pass_rate": 1.0}), base_no_slice, spec_drop)
+    assert blocked_empty == ["slice:denial/pass_rate"]

@@ -69,3 +69,15 @@ def test_paired_bootstrap_reference(stats):
 
 def test_paired_bootstrap_identical_is_zero(stats):
     assert stats.paired_bootstrap([1, 0, 1], [1, 0, 1]) == (0.0, 0.0, 0.0)
+
+
+def test_paired_bootstrap_mismatched_and_empty_raise(stats):
+    with pytest.raises(ValueError):
+        stats.paired_bootstrap([1.0, 0.5], [1.0])
+    with pytest.raises(ValueError):
+        stats.paired_bootstrap([], [])
+
+
+def test_paired_bootstrap_single_and_constant_diff(stats):
+    assert stats.paired_bootstrap([0.8], [0.3]) == pytest.approx((0.5, 0.5, 0.5), abs=1e-9)
+    assert stats.paired_bootstrap([1.0, 2.0], [0.5, 1.5]) == pytest.approx((0.5, 0.5, 0.5), abs=1e-9)

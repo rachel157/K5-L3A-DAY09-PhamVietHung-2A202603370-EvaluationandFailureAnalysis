@@ -37,4 +37,25 @@ Card này đi kèm mỗi báo cáo và được dùng lại ở Day 10.
 - **Gate owner:** Eval owner (nhóm kỹ sư phụ trách `lab9.gate` / CI `eval-gate`) xử lý khi `gate` exit `1`; không merge cho tới khi sửa hồi quy hoặc bổ sung regression test và re-run report mới.
 - **Phạm vi pilot:** Xử lý yêu cầu hoàn tiền LogiX-VN thuộc phạm vi `principal_scope: owner_order_only` theo `src/config/autonomy_policy.yaml` (cần `approval_event` hợp lệ khớp `claim_id`, không quá hạn, giới hạn theo số tiền đã duyệt/đã thanh toán/theo đơn, chỉ một hiệu ứng trên mỗi claim, stacking `max_of_eligible`).
 - **Giới hạn / bằng chứng còn thiếu:** Chạy trên `MockLLM`, cỡ mẫu `14 item` (`CI` rộng, chỉ bắt được hồi quy lớn), `judge replay` trên CSV công khai (`judge_tone_public.csv`, `judge_helpful_public.csv`) chưa có tập held-out mới; chưa đo trên dữ liệu người dùng thật.
-- **Khi nào tăng eval-set version:** Khi thêm item mới từ trace case (`provenance.from_trace`) hoặc sửa/bổ sung nhãn/tập mẫu khiến `eval_set_sha` thay đổi — phải tăng `eval_set_version` và chạy lại `reports/baseline_v1.json` (tạo baseline cho version mới).
+- **Khi nào tăng eval-set version:** Khi thêm item mới từ trace case (`provenance.from_trace`) hoặc sửa/bổ sung nhãn/tập mẫu khiến `eval_set_sha` thay đổi — phải tăng `eval_set_version` và chạy lại baseline cho version mới (ví dụ `reports/baseline_v2.json`).
+
+---
+
+## Eval set v2 (`metric_spec` `2.0` · M5–M7)
+
+- **Baseline `swarm` (v2):** `E-swarm-20261117-620e` · `eval_set_sha`: `620e19445610` · `28 item × 5 seed` (`140` cases/run, `data/eval/eval_set_v2.jsonl`, `data/eval/labels_v2.json`, `data/eval/adversarial_v2.json`) · `src/reports/baseline_v2.json` · seeds `[11, 22, 33, 44, 55]`
+- **A/A noise run (`lab9.mutation --spec config/metric_spec_v2.yaml --aa 66,77,88,99,110`):**
+  - So sánh `swarm` giữa `spec seeds` `[11, 22, 33, 44, 55]` và `alt seeds` `[66, 77, 88, 99, 110]`: toàn bộ metric đều cho `delta = +0.0000` trên `MockLLM` (`pass_rate = 0.9786`, `refund_amount_correct = 0.9786`, `reply_matches_ledger = 1.0`, `pass_at_1 = 0.9786`, `pass_hat_1 = 0.9786`, `pass_at_3 = 1.0`, `pass_hat_3 = 0.9357`, `pass_at_5 = 1.0`, `pass_hat_5 = 0.8929`, `cost_per_success = 50.8077`).
+  - **Vì sao cần A/A & ngưỡng ngoài dải nhiễu:** `MockLLM` tất định nên nhiễu A/A bằng `0`, nhưng LLM thật có nhiễu lấy mẫu theo seed (`delta > 0`). Sàn gate phải đặt ngoài dải nhiễu A/A (`baseline - noise_band`); nếu đặt sàn quá sát baseline trong vùng nhiễu A/A, các PR trung thực sẽ bị chặn ngẫu nhiên.
+- **Ngưỡng `pass_hat_5` đã chọn:** `pass_hat_5` (`kind: capability`, `level: outcome`, `grader: code`, `threshold: {min: 0.80}`, `blocking: true`) trong `src/config/metric_spec_v2.yaml`. Giá trị baseline `0.8929` nằm trên sàn `0.80` (`margin = 0.0929`, khớp yêu cầu rubric `≥ 0.80`, ngoài dải nhiễu A/A `0.0000`) và không dùng `no_significant_drop` vì `pass_hat_5` là chỉ số tổng hợp cấp báo cáo.
+- **Bảng slice / gate chặn lỗi nào (`lab9.mutation --spec config/metric_spec_v2.yaml --baseline reports/baseline_v2.json`, mutation score `3/3`, false alarms `0`):**
+
+| Variant | Kết quả mong đợi | Kết quả gate | Metric / slice chặn (hoặc lý do qua) |
+|---|---|---|---|
+| `fixed` | `merge` | `merge` (`ok`) | Không vi phạm ngưỡng, không tụt slice hay `pass_hat_5` |
+| `honest_refactor` | `merge` | `merge` (`ok`) | Đổi cách diễn đạt & thêm lookup nhưng outcome giữ nguyên |
+| `seeded_regression` | `block` | `block` (`ok`) | `refund_amount_correct`, `pass_rate`, `pass_hat_5`, `reply_matches_ledger`, `slice:denial/pass_rate`, `slice:money_movement/pass_rate`, `slice:adversarial/pass_rate` |
+| `slice_regression` | `block` | `block` (`ok`) | `slice:money_movement/pass_rate` (điểm trung bình chung chưa dưới sàn tổng, chỉ slice `money_movement` bắt được) |
+| `flaky_regression` | `block` | `block` (`ok`) | `pass_rate`, `pass_hat_5`, `slice:money_movement/pass_rate` (lỗi chập chờn `rare` 1/5 seed làm `pass_hat_5` và slice tụt dưới ngưỡng) |
+
+- **Giới hạn cỡ mẫu 5 seed:** Với chỉ `5` seed, một bug `rare` có xác suất xuất hiện `1/3` theo seed không thể được phát hiện ổn định — xác suất cả 5 seed đều né được lỗi là `(1 - 1/3)^5 ≈ 13.2%`, và nếu chọn 5 seed không chứa bội của `3` (như bộ A/A `[66, 77, 88, 99, 110]` có `66, 99`, còn `[11, 22, 44, 55, 77]` thì `0/5`) thì `pass_hat_5` có thể bỏ lọt hoàn toàn. Để bắt ổn định lỗi hiếm cần tăng số seed hoặc bổ sung regression test tất định cho tình huống biên.

@@ -26,9 +26,11 @@ def test_pass_hat_k(stats, n, c, k, want):
 
 
 def test_pass_k_rejects_bad_args(stats):
-    for args in [(5, 6, 1), (5, 2, 0), (3, 1, 4)]:
+    for args in [(5, 6, 1), (5, 2, 0), (3, 1, 4), (5, -1, 1), (0, 0, 1)]:
         with pytest.raises(ValueError):
             stats.pass_at_k(*args)
+        with pytest.raises(ValueError):
+            stats.pass_hat_k(*args)
 
 
 def _report(rows, metrics, items=4, seeds=(1, 2)):

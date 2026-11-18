@@ -41,6 +41,26 @@ def test_rogan_gladen_clips(stats):
     assert stats.rogan_gladen(0.0, 0.8, 0.9) == 0.0
 
 
+def test_confusion_mismatched_lengths_raises(stats):
+    with pytest.raises(ValueError):
+        stats.confusion(["PASS", "FAIL"], ["PASS"])
+
+
+def test_precision_recall_zero_denominator(stats):
+    assert stats.precision_recall(["PASS", "PASS"], ["PASS", "PASS"]) == (0.0, 0.0)
+
+
+def test_kappa_empty_raises(stats):
+    with pytest.raises(ValueError):
+        stats.cohen_kappa([], [])
+
+
+def test_rogan_gladen_uninformative_judge_clips_without_zero_division(stats):
+    assert stats.rogan_gladen(0.4, 0.5, 0.5) == 0.4
+    assert stats.rogan_gladen(1.2, 0.5, 0.5) == 1.0
+    assert stats.rogan_gladen(-0.1, 0.5, 0.5) == 0.0
+
+
 def test_paired_bootstrap_reference(stats):
     d, lo, hi = stats.paired_bootstrap([1, 1, 0.8, 1, 0.6], [1, 0.8, 0.8, 0.6, 0.6])
     assert d == pytest.approx(0.12, abs=1e-9)
@@ -49,3 +69,15 @@ def test_paired_bootstrap_reference(stats):
 
 def test_paired_bootstrap_identical_is_zero(stats):
     assert stats.paired_bootstrap([1, 0, 1], [1, 0, 1]) == (0.0, 0.0, 0.0)
+
+
+def test_paired_bootstrap_mismatched_and_empty_raise(stats):
+    with pytest.raises(ValueError):
+        stats.paired_bootstrap([1.0, 0.5], [1.0])
+    with pytest.raises(ValueError):
+        stats.paired_bootstrap([], [])
+
+
+def test_paired_bootstrap_single_and_constant_diff(stats):
+    assert stats.paired_bootstrap([0.8], [0.3]) == pytest.approx((0.5, 0.5, 0.5), abs=1e-9)
+    assert stats.paired_bootstrap([1.0, 2.0], [0.5, 1.5]) == pytest.approx((0.5, 0.5, 0.5), abs=1e-9)

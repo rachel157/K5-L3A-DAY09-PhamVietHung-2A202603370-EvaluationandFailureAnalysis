@@ -3,10 +3,10 @@
 Card này đi kèm mỗi báo cáo và được dùng lại ở Day 10.
 
 - **Run ID / eval set SHA:**
-  - Baseline (`swarm`): `E-swarm-20261117-2247` · `eval_set_sha`: `2247b47a0b92`
-  - PR đối chứng (`fixed`): `E-fixed-20261117-2247` · `eval_set_sha`: `2247b47a0b92` (`gate` exit `0` — `merge`)
-  - PR hồi quy (`seeded_regression`): `E-seeded_regression-20261117-2247` · `eval_set_sha`: `2247b47a0b92` (`gate` exit `1` — `blocked: refund_amount_correct, reply_matches_ledger, pass_rate`)
-- **Phiên bản:** code `src/lab8` (commit `c4488f4`) · eval set `v1` (`sha 2247b47a0b92`, commit `e2d59ed`) · `metric_spec` `1.0` (commit `04425cf`) · grader `lab9.graders.GRADERS` (commit `04425cf`) · `harness_map` `1.2` · seeds `11/22/33/44/55`
+  - Baseline (`swarm`): `E-swarm-20261118-5049` · `eval_set_sha`: `50497a1b5a43`
+  - PR đối chứng (`fixed`): `E-fixed-20261118-5049` · `eval_set_sha`: `50497a1b5a43` (`gate` exit `0` — `merge`)
+  - PR hồi quy (`seeded_regression`): `E-seeded_regression-20261118-5049` · `eval_set_sha`: `50497a1b5a43` (`gate` exit `1` — `blocked: refund_amount_correct, reply_matches_ledger, pass_rate`)
+- **Phiên bản:** code `src/lab8` (commit `c4488f4`) · eval set `v1` (`sha 50497a1b5a43`) · `metric_spec` `1.0` (commit `04425cf`) · grader `lab9.graders.GRADERS` (commit `835e3e1`) · `harness_map` `1.2` · seeds `11/22/33/44/55`
 - **Eval set:** `v1`, `14 item × 5 seed` (`70` cases/run), nguồn `data/eval/eval_set_v1.jsonl` (`lab8_public`); nhãn: `data/eval/labels_v1.json`
 - **Metric & ngưỡng (`src/config/metric_spec.yaml` `1.0`):**
   - `approval_bypass` (safety, trajectory, code): `max: 0`, `blocking: true`
@@ -20,7 +20,7 @@ Card này đi kèm mỗi báo cáo và được dùng lại ở Day 10.
   - `cost_per_success` (system, system, `lab8.metrics.summarize`): `max_increase: 0.10`, `blocking: false`
 - **Kết quả baseline vs PR (`n_resamples=1000`, `method=percentile`, `rng=2027`, `confidence=0.95`):**
 
-| Metric | Baseline `swarm` (`E-swarm-20261117-2247`) | PR `fixed` (`E-fixed-20261117-2247`) | Δ / CI `fixed` vs `swarm` | PR `seeded_regression` (`E-seeded_regression-20261117-2247`) | Δ / CI `seeded_regression` vs `swarm` | Gate (`seeded_regression`) |
+| Metric | Baseline `swarm` (`E-swarm-20261118-5049`) | PR `fixed` (`E-fixed-20261118-5049`) | Δ / CI `fixed` vs `swarm` | PR `seeded_regression` (`E-seeded_regression-20261118-5049`) | Δ / CI `seeded_regression` vs `swarm` | Gate (`seeded_regression`) |
 |---|---|---|---|---|---|---|
 | `approval_bypass` | `0` | `0` | — | `0` | — | `ok` |
 | `secret_leak` | `0` | `0` | — | `0` | — | `ok` |
@@ -43,7 +43,7 @@ Card này đi kèm mỗi báo cáo và được dùng lại ở Day 10.
 
 ## Eval set v2 (`metric_spec` `2.0` · M5–M7)
 
-- **Baseline `swarm` (v2):** `E-swarm-20261117-620e` · `eval_set_sha`: `620e19445610` · `28 item × 5 seed` (`140` cases/run, `data/eval/eval_set_v2.jsonl`, `data/eval/labels_v2.json`, `data/eval/adversarial_v2.json`) · `src/reports/baseline_v2.json` · seeds `[11, 22, 33, 44, 55]`
+- **Baseline `swarm` (v2):** `E-swarm-20261118-0448` · `eval_set_sha`: `04485cdefb5e` · `28 item × 5 seed` (`140` cases/run, `data/eval/eval_set_v2.jsonl`, `data/eval/labels_v2.json`, `data/eval/adversarial_v2.json`) · `src/reports/baseline_v2.json` · seeds `[11, 22, 33, 44, 55]`
 - **A/A noise run (`lab9.mutation --spec config/metric_spec_v2.yaml --aa 66,77,88,99,110`):**
   - So sánh `swarm` giữa `spec seeds` `[11, 22, 33, 44, 55]` và `alt seeds` `[66, 77, 88, 99, 110]`: toàn bộ metric đều cho `delta = +0.0000` trên `MockLLM` (`pass_rate = 0.9786`, `refund_amount_correct = 0.9786`, `reply_matches_ledger = 1.0`, `pass_at_1 = 0.9786`, `pass_hat_1 = 0.9786`, `pass_at_3 = 1.0`, `pass_hat_3 = 0.9357`, `pass_at_5 = 1.0`, `pass_hat_5 = 0.8929`, `cost_per_success = 50.8077`).
   - **Vì sao cần A/A & ngưỡng ngoài dải nhiễu:** `MockLLM` tất định nên nhiễu A/A bằng `0`, nhưng LLM thật có nhiễu lấy mẫu theo seed (`delta > 0`). Sàn gate phải đặt ngoài dải nhiễu A/A (`baseline - noise_band`); nếu đặt sàn quá sát baseline trong vùng nhiễu A/A, các PR trung thực sẽ bị chặn ngẫu nhiên.
